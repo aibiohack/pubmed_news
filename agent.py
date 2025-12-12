@@ -4,6 +4,7 @@ import os
 import html
 from Bio import Entrez
 import google.generativeai as genai
+from google.generativeai.types import HarmCategory, HarmBlockThreshold
 
 # --- НАСТРОЙКИ ---
 Entrez.email = "tvoj_email@example.com" 
@@ -71,39 +72,57 @@ def save_history(new_ids):
         for pmid in new_ids:
             f.write(f"{pmid}\n")
 
-# --- МОДУЛЬ АНАЛИЗА (С ЗАЩИТОЙ ОТ СБОЕВ) ---
+# --- МОДУЛЬ АНАЛИЗА (С ОТЛАДКОЙ) ---
 def analyze_abstract_with_gemini(title, abstract):
     if not GEMINI_API_KEY:
+        print("❌ ОШИБКА: Нет GEMINI_API_KEY")
         return "⚠️ Нет ключа Gemini"
 
     prompt = f"""
-    Задача: Проанализируй научный абстракт как спортивный физиолог.
+    You are a sports physiologist. Analyze this abstract.
+    Title: {title}
+    Abstract: {abstract}
     
-    Заголовок: {title}
-    Текст: {abstract}
-
-    Требования:
-    1. Напиши ОДНО предложение на русском языке.
-    2. Формат: "✅ [Суть вмешательства] на [Кол-во людей/животных] -> [Результат/Вывод] (цифры/проценты если есть)."
-    3. Будь предельно краток.
+    Task:
+    1. Summarize the key finding in ONE sentence in RUSSIAN.
+    2. Format: "✅ [Action/Supplement] on [Subjects] -> [Result] (change % or value)."
     """
 
-    # Список моделей: сначала пробуем новую, если нет - старую надежную
-    models_to_try = ['gemini-1.5-flash', 'gemini-pro']
+    # Список моделей для перебора
+    models_to_try = ['gemini-1.5-flash', 'gemini-1.5-pro', 'gemini-pro']
+
+    # Отключаем цензуру (чтобы пропускать медицинские термины)
+    safety_settings = {
+        HarmCategory.HARM_CATEGORY_HARASSMENT: HarmBlockThreshold.BLOCK_NONE,
+        HarmCategory.HARM_CATEGORY_HATE_SPEECH: HarmBlockThreshold.BLOCK_NONE,
+        HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT: HarmBlockThreshold.BLOCK_NONE,
+        HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT: HarmBlockThreshold.BLOCK_NONE,
+    }
+
+    last_error = ""
 
     for model_name in models_to_try:
         try:
+            print(f"🔍 Пробуем модель: {model_name} для статьи {title[:30]}...")
             model = genai.GenerativeModel(model_name)
-            response = model.generate_content(prompt)
+            
+            response = model.generate_content(
+                prompt, 
+                safety_settings=safety_settings
+            )
             
             if response.text:
                 return response.text.strip()
-        except Exception:
-            # Если не вышло с этой моделью, пробуем следующую
+            else:
+                print(f"⚠️ Модель {model_name} вернула пустой ответ (возможно, фильтры).")
+                
+        except Exception as e:
+            print(f"❌ Ошибка модели {model_name}: {e}")
+            last_error = str(e)
             continue
     
-    # Если все модели не сработали
-    return f"Заголовок: {title} (Не удалось проанализировать через AI)"
+    # Возвращаем ошибку в текст, чтобы видеть её в ТГ
+    return f"Заголовок: {title} (FAIL: {last_error})"
 
 # --- ПОИСК ---
 def search_pubmed(query, days=None, retmax=5, sort="date"):
@@ -166,7 +185,7 @@ def send_telegram_message(message):
 
 # --- MAIN ---
 def main():
-    print("Запуск агента v3.2 (Gemini + AutoFix)...")
+    print("Запуск агента v3.3 (DEBUG MODE)...")
     
     seen_ids = load_history()
     all_papers = []
@@ -176,7 +195,7 @@ def main():
     print("Этап 1: Поиск свежих...")
     for category, query_list in RAW_QUERIES.items():
         for q in query_list:
-            ids = search_pubmed(q, days=1, retmax=2)
+            ids = search_pubmed(q, days=1, retmax=1) # Берем по 1 для быстрого теста
             unique_ids = [i for i in ids if i not in seen_ids]
             if unique_ids:
                 details = fetch_details_and_analyze(unique_ids)
@@ -189,9 +208,9 @@ def main():
             time.sleep(1)
 
     # 2. Архив
-    if len(all_papers) < 10:
+    if len(all_papers) < 5:
         print("Этап 2: Поиск в архиве...")
-        needed = 10 - len(all_papers)
+        needed = 5 - len(all_papers)
         for category, query_list in RAW_QUERIES.items():
             if needed <= 0: break
             for q in query_list:
@@ -216,7 +235,7 @@ def main():
     all_papers.sort(key=lambda x: x['type'], reverse=True)
 
     # 3. ОТПРАВКА
-    buffer_message = "<b>🧠 Biohack Digest (AI)</b>\n\n"
+    buffer_message = "<b>🧠 Biohack Digest (DEBUG)</b>\n\n"
     current_category = ""
     
     for paper in all_papers:
@@ -228,7 +247,6 @@ def main():
         icon = "⚡️" if paper['type'] == 'fresh' else "🔬"
         
         clean_summary = html.escape(paper['summary'])
-        # Чистим Markdown, который иногда любит Gemini
         clean_summary = clean_summary.replace("**", "").replace("##", "")
         
         article_text += f"{icon} <a href='{paper['link']}'>Источник</a> ({paper['year']})\n{clean_summary}\n\n"
