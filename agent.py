@@ -21,43 +21,91 @@ if GEMINI_API_KEY:
     genai.configure(api_key=GEMINI_API_KEY)
 
 RAW_QUERIES = {
-    "Метаболизм и восстановление": [
-        "(mitochondrial biogenesis) AND (exercise)",
-        "(NAD+) AND (exercise performance) OR (skeletal muscle)",
-        "(lactate metabolism) OR (lactate as signaling molecule) AND (training)",
-        "(sleep extension) OR (sleep quality) AND (athletic performance)",
-        "(cold exposure) OR (cryotherapy) AND (recovery) OR (inflammation)",
-        "(heat acclimation) OR (sauna) AND (performance) OR (heat shock proteins)"
+    "🧬 1. Фундамент: Метаболизм и Долголетие": [
+        # Митохондрии и Энергия
+        "(mitochondrial biogenesis) AND (exercise) OR (zone 2)",
+        "(NAD+) OR (NMN) OR (NR) AND (aging) OR (muscle performance)",
+        "(AMPK activation) OR (sirtuins) AND (fasting) OR (exercise)",
+        "(metabolic flexibility) AND (fat oxidation) OR (insulin sensitivity)",
+        "(autophagy) AND (exercise) OR (time-restricted eating)",
+        "(hormesis) AND (sauna) OR (cold exposure) OR (hypoxia)"
     ],
-    "Нутрицевтика": [
-        "(ketogenic diet) AND (endurance performance) NOT (epilepsy)",
-        "(exogenous ketones) AND (endurance) OR (recovery)",
-        "(nitrate supplementation) AND (beetroot juice) AND (exercise efficiency)",
-        "(caffeine timing) OR (low-dose caffeine) AND (performance)",
-        "(creatine supplementation) AND (cognitive function) OR (recovery)",
-        "(beta-alanine) AND (high-intensity exercise)",
-        "(collagen peptides) AND (tendon) OR (ligament)",
-        "(\"time-restricted eating\") OR (\"intermittent fasting\") AND (body composition) OR (performance)"
+
+    "💊 2. Биохимия: Нутрицевтика и Адаптогены": [
+        # База
+        "(creatine monohydrate) AND (brain) OR (muscle) OR (recovery)",
+        "(magnesium) AND (sleep) OR (muscle relaxation) OR (stress)",
+        "(omega-3) OR (fish oil) AND (inflammation) OR (recovery) OR (concussion)",
+        "(vitamin D) AND (athletic performance) OR (strength) OR (testosterone)",
+        
+        # Эргогены (Усилители)
+        "(caffeine) AND (endurance) OR (power) OR (cognitive performance)",
+        "(beta-alanine) AND (high intensity) OR (tactical athlete)",
+        "(nitrate) OR (beetroot juice) AND (blood flow) OR (efficiency)",
+        "(ketogenic diet) OR (exogenous ketones) AND (metabolism) OR (endurance)",
+        
+        # Адаптогены (Травы и Грибы)
+        "(Ashwagandha) AND (cortisol) OR (strength) OR (testosterone)",
+        "(Rhodiola rosea) AND (fatigue) OR (mental performance)",
+        "(Lion's mane) OR (Hericium) AND (nerve growth factor) OR (cognition)",
+        "(Cordyceps) AND (VO2max) OR (ATP production)",
+        "(Tongkat Ali) OR (Eurycoma) AND (hormonal profile) OR (stress)",
+        "(Shilajit) AND (mitochondria) OR (muscle strength)"
     ],
-    "Нейромышечный контроль": [
-        "(post-activation potentiation) AND (PAP) protocols",
-        "(blood flow restriction) OR (KAATSU training) AND (hypertrophy) OR (rehabilitation)",
-        "(velocity-based training) AND (strength)",
-        "(tendon stiffness) AND (performance) OR (injury prevention)",
-        "(electromyostimulation) OR (EMS) AND (recovery) OR (performance)"
+
+    "💪 3. Тело: Сила, Гипертрофия и Механика": [
+        # Мышцы
+        "(hypertrophy) AND (volume) OR (frequency) OR (mechanical tension)",
+        "(eccentric training) AND (tendon) OR (strength gains)",
+        "(blood flow restriction) OR (BFR) AND (rehabilitation) OR (growth)",
+        
+        # Взрывная сила и Плиометрика
+        "(\"rate of force development\") OR (RFD) AND (explosive strength)",
+        "(plyometric training) AND (sprint speed) OR (jumping)",
+        "(\"stretch-shortening cycle\") AND (performance) OR (efficiency)",
+        "(velocity-based training) AND (power) OR (autoregulation)",
+        
+        # Связки и профилактика
+        "(tendon stiffness) AND (injury prevention) OR (energy return)",
+        "(mobility) OR (flexibility) AND (performance) NOT (elderly)"
     ],
-    "Мониторинг и персонализация": [
-        "(wearable devices) AND (heart rate variability) HRV AND (recovery monitoring)",
-        "(muscle oximetry) OR (NIRS) AND (training load)",
-        "(genetic polymorphisms) AND (response to exercise) OR (injury risk)",
-        "(microbiome) AND (athlete) OR (immune function)",
-        "(\"omics\" in sports) (metabolomics, proteomics, transcriptomics)"
+
+    "🫁 4. Двигатель: Кардио и Дыхание": [
+        "(VO2max) AND (longevity) OR (performance)",
+        "(heart rate variability) OR (HRV) AND (recovery) OR (readiness)",
+        "(stroke volume) OR (cardiac output) AND (athlete's heart)",
+        "(respiratory muscle training) OR (IMT) AND (endurance) OR (breathing)",
+        "(nasal breathing) OR (mouth taping) AND (sleep) OR (exercise)"
     ],
-    "Ментальный биохакинг": [
-        "(transcranial direct current stimulation) tDCS AND (motor learning) OR (endurance)",
-        "(neurofeedback) AND (sports performance)",
-        "(mindfulness) OR (meditation) AND (sport) OR (recovery)",
-        "(vagus nerve stimulation) AND (recovery)"
+
+    "🧠 5. Разум: Нейроатлетика и Психология": [
+        # Психология победителя
+        "(\"flow state\") AND (sport) OR (peak performance)",
+        "(mental toughness) OR (resilience) AND (anxiety) OR (competition)",
+        "(visualization) OR (motor imagery) AND (strength) OR (skill)",
+        "(self-talk) AND (endurance) OR (effort perception)",
+        
+        # Нейрофизиология
+        "(neuroplasticity) AND (exercise) OR (motor learning)",
+        "(stroboscopic training) OR (visual training) AND (reaction time)",
+        "(dopamine) AND (exercise motivation) OR (reward system)",
+        "(transcranial direct current stimulation) OR (tDCS) AND (sport)"
+    ],
+
+    "💤 6. Восстановление: Сон и Ритмы": [
+        "(circadian rhythm) OR (chronotype) AND (performance)",
+        "(slow wave sleep) OR (deep sleep) AND (physical recovery)",
+        "(REM sleep) AND (motor memory) OR (mental health)",
+        "(sleep deprivation) AND (testosterone) OR (injury risk)",
+        "(glymphatic system) AND (sleep) OR (brain clearance)"
+    ],
+
+    "🍃 7. Среда и Технологии": [
+        "(wearable technology) AND (accuracy) OR (load monitoring)",
+        "(blue light) AND (sleep quality) OR (alertness)",
+        "(grounding) OR (earthing) AND (inflammation) OR (recovery)",
+        "(music) OR (binaural beats) AND (focus) OR (relaxation)",
+        "(continuous glucose monitoring) AND (athlete) OR (fueling)"
     ]
 }
 
