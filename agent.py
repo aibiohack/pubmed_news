@@ -75,32 +75,30 @@ def save_history(new_ids):
 
 # --- МОДУЛЬ АНАЛИЗА (GEMINI) ---
 def analyze_abstract_with_gemini(title, abstract):
-    """Отправляет абстракт в Gemini для извлечения сути на русском."""
+    """Отправляет абстракт в Gemini."""
     if not GEMINI_API_KEY:
-        return f"Заголовок: {title} (Нет API ключа Gemini)"
+        return f"⚠️ ОШИБКА: Не найден GEMINI_API_KEY. Проверь Secrets и daily.yml"
 
-    # Промпт (инструкция) для модели
+    # Промпт
     prompt = f"""
-    Ты профессиональный спортивный физиолог. Проанализируй этот научный абстракт.
-    
+    Переведи на русский и сократи суть до 1 предложения:
     Заголовок: {title}
     Текст: {abstract}
-
-    Твоя задача:
-    1. Перевести суть на русский язык.
-    2. Сформулировать ОДНО емкое предложение по схеме:
-       "✅ [Вмешательство/Добавка] ([Дозировка/Схема]) на [Кол-во людей] -> [Конкретный результат] (изменение на X% или p-value, если есть)."
-    
-    Если данных мало, просто напиши вывод. Не используй вводные слова типа "Исследование показало". Сразу к делу.
     """
 
     try:
+        # Пробуем указать модель явно
+        model = genai.GenerativeModel('gemini-1.5-flash')
         response = model.generate_content(prompt)
+        
+        # Проверка: не заблокировал ли Google ответ (safety filters)
+        if not response.text:
+            return f"⚠️ Gemini вернул пустой ответ (возможно, фильтры безопасности)."
+            
         return response.text.strip()
     except Exception as e:
-        print(f"Ошибка Gemini: {e}")
-        # Если ИИ ошибся, просто возвращаем английский заголовок, чтобы не потерять статью
-        return f"Paper: {title} (Ошибка анализа)"
+        # ВАЖНО: Теперь мы увидим реальный текст ошибки в Телеграме
+        return f"⚠️ CRASH: {str(e)}"
 
 # --- ПОИСК PUBMED ---
 def search_pubmed(query, days=None, retmax=5, sort="date"):
