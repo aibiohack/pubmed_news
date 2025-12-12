@@ -1,8 +1,9 @@
 import requests
 import time
 import os
-import html  # <--- Добавили библиотеку для очистки текста
+import html
 from Bio import Entrez
+from deep_translator import GoogleTranslator # <--- Подключили переводчик
 
 # --- НАСТРОЙКИ ---
 Entrez.email = "tvoj_email@example.com" 
@@ -10,6 +11,7 @@ Entrez.email = "tvoj_email@example.com"
 TELEGRAM_TOKEN = os.environ.get("TG_TOKEN")
 TELEGRAM_CHAT_ID = os.environ.get("TG_CHAT_ID")
 HISTORY_FILE = "history.txt"
+# Фильтр качества (только крутые статьи)
 QUALITY_FILTER = " AND (Meta-Analysis[ptyp] OR Randomized Controlled Trial[ptyp] OR Systematic Review[ptyp])"
 
 RAW_QUERIES = {
@@ -53,6 +55,7 @@ RAW_QUERIES = {
     ]
 }
 
+# --- МОДУЛЬ ПАМЯТИ ---
 def load_history():
     if not os.path.exists(HISTORY_FILE):
         return set()
@@ -64,6 +67,18 @@ def save_history(new_ids):
         for pmid in new_ids:
             f.write(f"{pmid}\n")
 
+# --- МОДУЛЬ ПЕРЕВОДА ---
+def translate_to_russian(text):
+    """Переводит текст на русский язык."""
+    try:
+        # Используем Google Translator (автоопределение -> русский)
+        translated = GoogleTranslator(source='auto', target='ru').translate(text)
+        return translated
+    except Exception as e:
+        print(f"Ошибка перевода: {e}")
+        return text # Если сломалось, возвращаем английский оригинал
+
+# --- ПОИСК ---
 def search_pubmed(query, days=None, retmax=5, sort="date"):
     full_query = query + QUALITY_FILTER
     try:
@@ -90,18 +105,25 @@ def fetch_details(id_list):
         papers = []
         for article in records['PubmedArticle']:
             try:
-                title = article['MedlineCitation']['Article']['ArticleTitle']
+                # Получаем английский заголовок
+                title_en = article['MedlineCitation']['Article']['ArticleTitle']
+                
+                # ПЕРЕВОДИМ НА РУССКИЙ
+                title_ru = translate_to_russian(title_en)
+                
                 pmid = article['MedlineCitation']['PMID']
                 link = f"https://pubmed.ncbi.nlm.nih.gov/{pmid}/"
                 pub_date = article['MedlineCitation']['Article']['Journal']['JournalIssue']['PubDate']
                 year = pub_date.get('Year', 'N/A')
-                papers.append({'title': title, 'link': link, 'id': str(pmid), 'year': year})
+                
+                papers.append({'title': title_ru, 'link': link, 'id': str(pmid), 'year': year})
             except:
                 continue
         return papers
     except:
         return []
 
+# --- TELEGRAM ---
 def send_telegram_message(message):
     if not TELEGRAM_TOKEN or not TELEGRAM_CHAT_ID:
         print("❌ Токены не настроены")
@@ -120,8 +142,9 @@ def send_telegram_message(message):
     else:
         print("✅ Сообщение отправлено")
 
+# --- MAIN ---
 def main():
-    print("Запуск агента v2.1 (Fix HTML)...")
+    print("Запуск агента v2.2 (RU)...")
     seen_ids = load_history()
     all_papers = []
     new_seen_ids = []
@@ -170,15 +193,11 @@ def main():
     # Сортировка
     all_papers.sort(key=lambda x: x['type'], reverse=True)
 
-    # 3. УМНАЯ ОТПРАВКА (Chunking)
-    # Мы собираем сообщение и отправляем, как только оно становится большим,
-    # не дожидаясь конца, чтобы не резать теги.
-    
-    buffer_message = "<b>🧬 Biohack Daily Digest</b>\n<i>Только РКИ и Мета-анализы</i>\n\n"
+    # 3. ОТПРАВКА
+    buffer_message = "<b>🧬 Дайджест Биохакинга</b>\n<i>Только РКИ и Мета-анализы (RU)</i>\n\n"
     current_category = ""
     
     for paper in all_papers:
-        # Подготовка куска текста для одной статьи
         article_text = ""
         if paper['category'] != current_category:
             article_text += f"<b>🔹 {paper['category']}</b>\n"
@@ -186,24 +205,20 @@ def main():
         
         icon = "🔥" if paper['type'] == 'fresh' else "📚"
         
-        # ВАЖНО: Чистим заголовок от опасных символов!
-        clean_title = html.escape(paper['title']) 
+        # Экранируем спецсимволы уже после перевода
+        clean_title = html.escape(paper['title'])
         
         article_text += f"{icon} <a href='{paper['link']}'>{clean_title}</a> ({paper['year']})\n\n"
         
-        # Проверка: если добавим этот кусок, не превысим ли лимит?
-        # Лимит 4096, берем запас 3000 для надежности
         if len(buffer_message) + len(article_text) > 3000:
-            send_telegram_message(buffer_message) # Отправляем то, что накопилось
-            buffer_message = article_text # Начинаем новое сообщение с текущей статьи
+            send_telegram_message(buffer_message)
+            buffer_message = article_text
         else:
-            buffer_message += article_text # Просто добавляем в буфер
+            buffer_message += article_text
 
-    # Отправляем остатки
     if buffer_message:
         send_telegram_message(buffer_message)
 
-    # Сохраняем историю
     if new_seen_ids:
         save_history(new_seen_ids)
         print(f"Сохранено {len(new_seen_ids)} статей.")
