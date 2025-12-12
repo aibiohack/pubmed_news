@@ -1,24 +1,17 @@
 import requests
 import time
 import os
-from datetime import datetime
+import html  # <--- Добавили библиотеку для очистки текста
 from Bio import Entrez
 
 # --- НАСТРОЙКИ ---
-Entrez.email = "energy17429@gmail.com"  # <--- ЗАМЕНИ НА СВОЙ EMAIL
+Entrez.email = "tvoj_email@example.com" 
 
-# Берем из секретов или переменных
 TELEGRAM_TOKEN = os.environ.get("TG_TOKEN")
 TELEGRAM_CHAT_ID = os.environ.get("TG_CHAT_ID")
-
-# Файл памяти (создастся сам)
 HISTORY_FILE = "history.txt"
-
-# Жесткий фильтр типов статей (только наука высокого качества)
 QUALITY_FILTER = " AND (Meta-Analysis[ptyp] OR Randomized Controlled Trial[ptyp] OR Systematic Review[ptyp])"
 
-# Твои категории и запросы
-# Мы будем автоматически добавлять к ним фильтр качества при поиске
 RAW_QUERIES = {
     "Метаболизм и восстановление": [
         "(mitochondrial biogenesis) AND (exercise)",
@@ -60,43 +53,31 @@ RAW_QUERIES = {
     ]
 }
 
-# --- МОДУЛЬ ПАМЯТИ ---
 def load_history():
-    """Загружает список ID статей, которые мы уже видели."""
     if not os.path.exists(HISTORY_FILE):
         return set()
     with open(HISTORY_FILE, "r") as f:
         return set(line.strip() for line in f)
 
 def save_history(new_ids):
-    """Дописывает новые ID в файл."""
     with open(HISTORY_FILE, "a") as f:
         for pmid in new_ids:
             f.write(f"{pmid}\n")
 
-# --- ПОИСК ---
 def search_pubmed(query, days=None, retmax=5, sort="date"):
-    """Ищет статьи. Если days=None, ищет без ограничения по дате (но топ релевантных)."""
-    # Добавляем фильтр качества к запросу
     full_query = query + QUALITY_FILTER
-    
     try:
-        params = {
-            "db": "pubmed",
-            "term": full_query,
-            "retmax": retmax,
-            "sort": sort
-        }
+        params = {"db": "pubmed", "term": full_query, "retmax": retmax, "sort": sort}
         if days:
             params["reldate"] = days
-            params["datetype"] = "pdat" # Дата публикации
+            params["datetype"] = "pdat"
         
         handle = Entrez.esearch(**params)
         record = Entrez.read(handle)
         handle.close()
         return record["IdList"]
     except Exception as e:
-        print(f"Ошибка поиска '{query}': {e}")
+        print(f"Ошибка поиска: {e}")
         return []
 
 def fetch_details(id_list):
@@ -112,10 +93,8 @@ def fetch_details(id_list):
                 title = article['MedlineCitation']['Article']['ArticleTitle']
                 pmid = article['MedlineCitation']['PMID']
                 link = f"https://pubmed.ncbi.nlm.nih.gov/{pmid}/"
-                # Пробуем найти год публикации
                 pub_date = article['MedlineCitation']['Article']['Journal']['JournalIssue']['PubDate']
                 year = pub_date.get('Year', 'N/A')
-                
                 papers.append({'title': title, 'link': link, 'id': str(pmid), 'year': year})
             except:
                 continue
@@ -123,12 +102,11 @@ def fetch_details(id_list):
     except:
         return []
 
-# --- TELEGRAM ---
 def send_telegram_message(message):
     if not TELEGRAM_TOKEN or not TELEGRAM_CHAT_ID:
-        print("❌ ОШИБКА: Токены не найдены! Проверь Secrets в GitHub.")
+        print("❌ Токены не настроены")
         return
-        
+    
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
     data = {
         "chat_id": TELEGRAM_CHAT_ID,
@@ -136,33 +114,24 @@ def send_telegram_message(message):
         "parse_mode": "HTML",
         "disable_web_page_preview": True
     }
-    
-    # Мы сохраняем ответ сервера в переменную response
     response = requests.post(url, data=data)
-    
-    # Проверяем статус
     if response.status_code != 200:
-        print(f"❌ Ошибка отправки в Telegram!")
-        print(f"Код ошибки: {response.status_code}")
-        print(f"Ответ сервера: {response.text}")
+        print(f"❌ Ошибка Telegram: {response.text}")
     else:
-        print("✅ Сообщение успешно отправлено в Telegram.")
+        print("✅ Сообщение отправлено")
 
-# --- ГЛАВНАЯ ЛОГИКА ---
 def main():
-    print("Запуск агента v2.0...")
+    print("Запуск агента v2.1 (Fix HTML)...")
     seen_ids = load_history()
     all_papers = []
     new_seen_ids = []
 
-    # 1. Попытка найти СВЕЖЕЕ (за 24 часа) - самое важное
-    print("Этап 1: Поиск свежих статей за 24 часа...")
+    # 1. Свежее
+    print("Этап 1: Поиск свежих...")
     for category, query_list in RAW_QUERIES.items():
         for q in query_list:
             ids = search_pubmed(q, days=1, retmax=3)
-            # Фильтруем то, что уже видели (маловероятно за 24ч, но вдруг)
             unique_ids = [i for i in ids if i not in seen_ids]
-            
             if unique_ids:
                 details = fetch_details(unique_ids)
                 for paper in details:
@@ -173,24 +142,17 @@ def main():
                     new_seen_ids.append(paper['id'])
             time.sleep(0.3)
 
-    # 2. Если набрали меньше 15 статей, добиваем "Золотым фондом" (лучшее за 5 лет)
-    # Но показываем только то, чего не было в истории
+    # 2. Архив
     if len(all_papers) < 15:
-        print("Мало свежего. Этап 2: Поиск в архиве (5 лет)...")
+        print("Этап 2: Поиск в архиве...")
         needed = 20 - len(all_papers)
-        
         for category, query_list in RAW_QUERIES.items():
             if needed <= 0: break
             for q in query_list:
-                # Ищем топ-10 самых релевантных за 5 лет (reldate=1825 дней)
                 ids = search_pubmed(q, days=1825, retmax=10, sort="relevance")
-                
-                # Самое важное: берем только те ID, которых НЕТ в seen_ids
                 candidates = [i for i in ids if i not in seen_ids]
-                
                 if candidates:
-                    # Берем по 1-2 штуки с запроса, чтобы не забить все одной темой
-                    to_take = candidates[:1] 
+                    to_take = candidates[:1]
                     details = fetch_details(to_take)
                     for paper in details:
                         paper['category'] = category
@@ -201,39 +163,50 @@ def main():
                         needed -= 1
                 time.sleep(0.3)
 
-    # 3. Отправка и сохранение
     if not all_papers:
-        print("Ничего нового не найдено.")
-        # Можно не отправлять сообщение в ТГ, чтобы не спамить "пустотой"
+        print("Ничего нового.")
         return
 
-    # Сортировка: сначала свежие, потом архив
-    all_papers.sort(key=lambda x: x['type'], reverse=True) 
+    # Сортировка
+    all_papers.sort(key=lambda x: x['type'], reverse=True)
 
-    message = "<b>🧬 Biohack Daily Digest</b>\n"
-    message += "<i>Только РКИ, Мета-анализы и Обзоры</i>\n\n"
+    # 3. УМНАЯ ОТПРАВКА (Chunking)
+    # Мы собираем сообщение и отправляем, как только оно становится большим,
+    # не дожидаясь конца, чтобы не резать теги.
     
+    buffer_message = "<b>🧬 Biohack Daily Digest</b>\n<i>Только РКИ и Мета-анализы</i>\n\n"
     current_category = ""
+    
     for paper in all_papers:
+        # Подготовка куска текста для одной статьи
+        article_text = ""
         if paper['category'] != current_category:
-            message += f"<b>🔹 {paper['category']}</b>\n"
+            article_text += f"<b>🔹 {paper['category']}</b>\n"
             current_category = paper['category']
         
-        icon = "🔥" if paper['type'] == 'fresh' else "📚" # Огонь для новых, Книги для архива
-        title = paper['title'].replace("<", "").replace(">", "")
-        year = paper.get('year', '')
+        icon = "🔥" if paper['type'] == 'fresh' else "📚"
         
-        message += f"{icon} <a href='{paper['link']}'>{title}</a> ({year})\n\n"
+        # ВАЖНО: Чистим заголовок от опасных символов!
+        clean_title = html.escape(paper['title']) 
+        
+        article_text += f"{icon} <a href='{paper['link']}'>{clean_title}</a> ({paper['year']})\n\n"
+        
+        # Проверка: если добавим этот кусок, не превысим ли лимит?
+        # Лимит 4096, берем запас 3000 для надежности
+        if len(buffer_message) + len(article_text) > 3000:
+            send_telegram_message(buffer_message) # Отправляем то, что накопилось
+            buffer_message = article_text # Начинаем новое сообщение с текущей статьи
+        else:
+            buffer_message += article_text # Просто добавляем в буфер
 
-    # Режем сообщение если длинное
-    chunks = [message[i:i+4096] for i in range(0, len(message), 4096)]
-    for chunk in chunks:
-        send_telegram_message(chunk)
+    # Отправляем остатки
+    if buffer_message:
+        send_telegram_message(buffer_message)
 
-    # СОХРАНЯЕМ ИСТОРИЮ
+    # Сохраняем историю
     if new_seen_ids:
         save_history(new_seen_ids)
-        print(f"Сохранено {len(new_seen_ids)} новых статей в историю.")
+        print(f"Сохранено {len(new_seen_ids)} статей.")
 
 if __name__ == "__main__":
     main()
