@@ -120,7 +120,7 @@ def save_history(new_ids):
         for pmid in new_ids:
             f.write(f"{pmid}\n")
 
-# --- МОДУЛЬ АНАЛИЗА (С ОТЛАДКОЙ) ---
+# --- МОДУЛЬ АНАЛИЗА (GEMINI) ---
 def analyze_abstract_with_gemini(title, abstract):
     if not GEMINI_API_KEY:
         print("❌ ОШИБКА: Нет GEMINI_API_KEY")
@@ -136,10 +136,11 @@ def analyze_abstract_with_gemini(title, abstract):
     2. Format: "✅ [Action/Supplement] on [Subjects] -> [Result] (change % or value)."
     """
 
-    # Список моделей для перебора
-    models_to_try = ['gemini-1.5-flash', 'gemini-1.5-pro', 'gemini-pro']
+    # ОБНОВЛЕННЫЙ СПИСОК МОДЕЛЕЙ
+    # Убрали старую 'gemini-pro', оставили только актуальные версии 1.5
+    models_to_try = ['gemini-1.5-flash', 'gemini-1.5-pro']
 
-    # Отключаем цензуру (чтобы пропускать медицинские термины)
+    # Настройки безопасности (разрешаем всё, чтобы не блочило медицинские термины)
     safety_settings = {
         HarmCategory.HARM_CATEGORY_HARASSMENT: HarmBlockThreshold.BLOCK_NONE,
         HarmCategory.HARM_CATEGORY_HATE_SPEECH: HarmBlockThreshold.BLOCK_NONE,
@@ -151,7 +152,7 @@ def analyze_abstract_with_gemini(title, abstract):
 
     for model_name in models_to_try:
         try:
-            print(f"🔍 Пробуем модель: {model_name} для статьи {title[:30]}...")
+            # print(f"🔍 Пробуем модель: {model_name}...") # Можно раскомментировать для отладки
             model = genai.GenerativeModel(model_name)
             
             response = model.generate_content(
@@ -161,17 +162,15 @@ def analyze_abstract_with_gemini(title, abstract):
             
             if response.text:
                 return response.text.strip()
-            else:
-                print(f"⚠️ Модель {model_name} вернула пустой ответ (возможно, фильтры).")
-                
+            
         except Exception as e:
-            print(f"❌ Ошибка модели {model_name}: {e}")
+            # Если модель не сработала, молча пробуем следующую
             last_error = str(e)
             continue
     
-    # Возвращаем ошибку в текст, чтобы видеть её в ТГ
-    return f"Заголовок: {title} (FAIL: {last_error})"
-
+    # Если перепробовали все и ничего не вышло
+    return f"Заголовок: {title} (Ошибка AI: {last_error})"
+    
 # --- ПОИСК ---
 def search_pubmed(query, days=None, retmax=5, sort="date"):
     full_query = query + QUALITY_FILTER
