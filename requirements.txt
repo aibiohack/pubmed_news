@@ -1,2 +1,3 @@
 biopython
 requests
+deep-translator
