@@ -3,7 +3,7 @@ import time
 import os
 import html
 from Bio import Entrez
-import google.generativeai as genai # <--- Библиотека Gemini
+import google.generativeai as genai
 
 # --- НАСТРОЙКИ ---
 Entrez.email = "tvoj_email@example.com" 
@@ -18,8 +18,6 @@ QUALITY_FILTER = " AND (Meta-Analysis[ptyp] OR Randomized Controlled Trial[ptyp]
 # Настройка Gemini
 if GEMINI_API_KEY:
     genai.configure(api_key=GEMINI_API_KEY)
-    # Используем быструю и экономную модель Flash
-    model = genai.GenerativeModel('gemini-1.5-flash')
 
 RAW_QUERIES = {
     "Метаболизм и восстановление": [
@@ -73,34 +71,41 @@ def save_history(new_ids):
         for pmid in new_ids:
             f.write(f"{pmid}\n")
 
-# --- МОДУЛЬ АНАЛИЗА (GEMINI) ---
+# --- МОДУЛЬ АНАЛИЗА (С ЗАЩИТОЙ ОТ СБОЕВ) ---
 def analyze_abstract_with_gemini(title, abstract):
-    """Отправляет абстракт в Gemini."""
     if not GEMINI_API_KEY:
-        return f"⚠️ ОШИБКА: Не найден GEMINI_API_KEY. Проверь Secrets и daily.yml"
+        return "⚠️ Нет ключа Gemini"
 
-    # Промпт
     prompt = f"""
-    Переведи на русский и сократи суть до 1 предложения:
+    Задача: Проанализируй научный абстракт как спортивный физиолог.
+    
     Заголовок: {title}
     Текст: {abstract}
+
+    Требования:
+    1. Напиши ОДНО предложение на русском языке.
+    2. Формат: "✅ [Суть вмешательства] на [Кол-во людей/животных] -> [Результат/Вывод] (цифры/проценты если есть)."
+    3. Будь предельно краток.
     """
 
-    try:
-        # Пробуем указать модель явно
-        model = genai.GenerativeModel('gemini-1.5-flash')
-        response = model.generate_content(prompt)
-        
-        # Проверка: не заблокировал ли Google ответ (safety filters)
-        if not response.text:
-            return f"⚠️ Gemini вернул пустой ответ (возможно, фильтры безопасности)."
-            
-        return response.text.strip()
-    except Exception as e:
-        # ВАЖНО: Теперь мы увидим реальный текст ошибки в Телеграме
-        return f"⚠️ CRASH: {str(e)}"
+    # Список моделей: сначала пробуем новую, если нет - старую надежную
+    models_to_try = ['gemini-1.5-flash', 'gemini-pro']
 
-# --- ПОИСК PUBMED ---
+    for model_name in models_to_try:
+        try:
+            model = genai.GenerativeModel(model_name)
+            response = model.generate_content(prompt)
+            
+            if response.text:
+                return response.text.strip()
+        except Exception:
+            # Если не вышло с этой моделью, пробуем следующую
+            continue
+    
+    # Если все модели не сработали
+    return f"Заголовок: {title} (Не удалось проанализировать через AI)"
+
+# --- ПОИСК ---
 def search_pubmed(query, days=None, retmax=5, sort="date"):
     full_query = query + QUALITY_FILTER
     try:
@@ -129,14 +134,12 @@ def fetch_details_and_analyze(id_list):
                 pmid = article['MedlineCitation']['PMID']
                 title_en = article['MedlineCitation']['Article']['ArticleTitle']
                 
-                # Достаем абстракт
                 abstract_parts = article['MedlineCitation']['Article'].get('Abstract', {}).get('AbstractText', [])
                 full_abstract = " ".join(abstract_parts) if abstract_parts else ""
 
                 if not full_abstract:
                     summary = f"Заголовок: {title_en} (Нет текста статьи)"
                 else:
-                    # GEMINI АНАЛИЗ
                     summary = analyze_abstract_with_gemini(title_en, full_abstract)
                 
                 link = f"https://pubmed.ncbi.nlm.nih.gov/{pmid}/"
@@ -145,11 +148,11 @@ def fetch_details_and_analyze(id_list):
                 
                 papers.append({'summary': summary, 'link': link, 'id': str(pmid), 'year': year})
             except Exception as e:
-                print(f"Ошибка обработки статьи {pmid}: {e}")
+                print(f"Ошибка статьи {pmid}: {e}")
                 continue
         return papers
     except Exception as e:
-        print(f"Ошибка скачивания деталей: {e}")
+        print(f"Ошибка скачивания: {e}")
         return []
 
 # --- TELEGRAM ---
@@ -163,13 +166,13 @@ def send_telegram_message(message):
 
 # --- MAIN ---
 def main():
-    print("Запуск агента v3.1 (Gemini Analysis)...")
+    print("Запуск агента v3.2 (Gemini + AutoFix)...")
     
     seen_ids = load_history()
     all_papers = []
     new_seen_ids = []
 
-    # 1. Свежее (берем по 2 статьи на тему, чтобы не перегрузить)
+    # 1. Свежее
     print("Этап 1: Поиск свежих...")
     for category, query_list in RAW_QUERIES.items():
         for q in query_list:
@@ -183,9 +186,9 @@ def main():
                     all_papers.append(paper)
                     seen_ids.add(paper['id'])
                     new_seen_ids.append(paper['id'])
-            time.sleep(1) # Чуть большая пауза для Gemini API (Rate limits)
+            time.sleep(1)
 
-    # 2. Архив (если мало)
+    # 2. Архив
     if len(all_papers) < 10:
         print("Этап 2: Поиск в архиве...")
         needed = 10 - len(all_papers)
@@ -213,7 +216,7 @@ def main():
     all_papers.sort(key=lambda x: x['type'], reverse=True)
 
     # 3. ОТПРАВКА
-    buffer_message = "<b>🧠 Biohack Digest (by Gemini)</b>\n\n"
+    buffer_message = "<b>🧠 Biohack Digest (AI)</b>\n\n"
     current_category = ""
     
     for paper in all_papers:
@@ -224,10 +227,9 @@ def main():
         
         icon = "⚡️" if paper['type'] == 'fresh' else "🔬"
         
-        # summary уже очищаем для HTML
         clean_summary = html.escape(paper['summary'])
-        # Жирный шрифт для ключевых цифр (Gemini иногда ставит звездочки для Markdown, уберем их)
-        clean_summary = clean_summary.replace("**", "")
+        # Чистим Markdown, который иногда любит Gemini
+        clean_summary = clean_summary.replace("**", "").replace("##", "")
         
         article_text += f"{icon} <a href='{paper['link']}'>Источник</a> ({paper['year']})\n{clean_summary}\n\n"
         
@@ -242,7 +244,6 @@ def main():
 
     if new_seen_ids:
         save_history(new_seen_ids)
-        print(f"Сохранено {len(new_seen_ids)} статей.")
 
 if __name__ == "__main__":
     main()
