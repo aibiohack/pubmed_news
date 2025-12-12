@@ -1,0 +1,40 @@
+name: Daily PubMed Scan
+
+on:
+  schedule:
+    - cron: '0 6 * * *' # 6 утра каждый день
+  workflow_dispatch:
+
+permissions:
+  contents: write # <--- ВАЖНО: Разрешаем боту запись в репозиторий
+
+jobs:
+  run-agent:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.9'
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run Agent
+        env:
+          TG_TOKEN: ${{ secrets.TG_TOKEN }}
+          TG_CHAT_ID: ${{ secrets.TG_CHAT_ID }}
+        run: python agent.py
+
+      - name: Commit and Push History
+        # Этот шаг сработает, только если history.txt изменился
+        run: |
+          git config --global user.name "Biohack Bot"
+          git config --global user.email "bot@example.com"
+          git add history.txt
+          git commit -m "Update history [skip ci]" || echo "No changes to commit"
+          git push
